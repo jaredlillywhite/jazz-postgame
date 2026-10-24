@@ -144,8 +144,9 @@ def build_game_page(data, other_games):
     def bar(p):
         if p is None:
             return ""
+        suffix = "th" if 11 <= p % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(p % 10, "th")
         return (f'<div class="bar"><div class="fill" style="width:{p}%"></div></div>'
-                f'<span class="pct">{p}th</span>')
+                f'<span class="pct">{p}{suffix}</span>')
 
     def srow(label, uu, nn, pu=None, pn=None, note=""):
         cells = f'<td class="lbl">{label}</td><td class="num">{uu}</td><td class="num">{nn}</td>'

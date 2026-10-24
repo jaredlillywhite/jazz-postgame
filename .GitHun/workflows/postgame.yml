@@ -1,0 +1,82 @@
+name: Jazz postgame
+
+# Game nights, Mountain Time evenings. 1–7 UTC covers roughly 7pm–1am MT
+# (6pm–midnight once daylight saving ends). Polling is cheap: the job exits
+# early when no new final game is on the live site.
+on:
+  schedule:
+    - cron: "*/30 1-7 * * *"
+  workflow_dispatch:
+    inputs:
+      game_id:
+        description: "Force-build one game ID (leave blank for normal run)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check for a new final game
+        id: check
+        run: |
+          LIVE="https://${{ github.repository_owner }}.github.io/jazz-postgame/data/index.json"
+          LATEST=$(python - <<'EOF'
+          import sys
+          sys.path.insert(0, ".")
+          from pipeline.pipeline import jazz_finals, current_season
+          finals = jazz_finals(current_season())
+          print(finals[-1]["game_id"] if finals else "")
+          EOF
+          )
+          echo "latest final: $LATEST"
+          if [ -n "${{ inputs.game_id }}" ]; then
+            echo "forced game: ${{ inputs.game_id }}"
+            echo "new_game=true" >> "$GITHUB_OUTPUT"
+          elif curl -sf "$LIVE" | grep -q "$LATEST"; then
+            echo "already published; nothing to do"
+            echo "new_game=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new game found"
+            echo "new_game=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build site
+        if: steps.check.outputs.new_game == 'true'
+        run: |
+          if [ -n "${{ inputs.game_id }}" ]; then
+            python run.py --out site --game-id "${{ inputs.game_id }}"
+          else
+            python run.py --out site \
+              --live-index "https://${{ github.repository_owner }}.github.io/jazz-postgame/data/index.json"
+          fi
+
+      - name: Upload Pages artifact
+        if: steps.check.outputs.new_game == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        if: steps.check.outputs.new_game == 'true'
+        id: deployment
+        uses: actions/deploy-pages@v4

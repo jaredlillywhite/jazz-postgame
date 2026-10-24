@@ -58,8 +58,9 @@ def fetch_game(game_id):
         boxscoretraditionalv3, playbyplayv3, shotchartdetail)
     box = _call(
         lambda: boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id),
-        f"box-{game_id}").get_data_frames()[2]
-    teams = {r["teamTricode"]: r for r in box.to_dict("records")}
+        f"box-{game_id}").get_data_frames()
+    teams = {r["teamTricode"]: r for r in box[2].to_dict("records")}
+    players = box[0].to_dict("records")
     pbp = _call(
         lambda: playbyplayv3.PlayByPlayV3(game_id=game_id),
         f"pbp-{game_id}").get_data_frames()[0]
@@ -72,7 +73,7 @@ def fetch_game(game_id):
                 context_measure_simple="FGA"),
             f"shots-{game_id}-{tri}").get_data_frames()[0]
         shots[tri] = sc.to_dict("records")
-    return teams, pbp, shots
+    return teams, pbp, shots, players
 
 
 def count_trips(pbp):
@@ -349,9 +350,71 @@ def league_percentiles(season, featured):
     return out, len(rows)
 
 
+def _min_seconds(m):
+    if m is None:
+        return 0
+    s = str(m)
+    if ":" in s:
+        try:
+            mm, ss = s.split(":")
+            return int(mm) * 60 + float(ss)
+        except ValueError:
+            return 0
+    try:
+        return float(s)
+    except ValueError:
+        return 0
+
+
+def player_stats(rows, shots_by_tri, zone_avg):
+    """Per-player framework numbers, keyed by team tricode.
+
+    Box-score counting stats plus true shooting % and shot-location luck
+    (actual FG points minus expected, from the same zone averages as the
+    team shot quality). Players who did not play are dropped."""
+    from collections import defaultdict
+    shots_by_player = {}
+    for tri, shots in shots_by_tri.items():
+        d = defaultdict(list)
+        for s in shots:
+            d[str(s.get("PLAYER_ID"))].append(s)
+        shots_by_player[tri] = d
+    by_team = defaultdict(list)
+    for r in rows:
+        tri = r["teamTricode"]
+        if _min_seconds(r.get("minutes")) <= 0:
+            continue
+        fga = int(r["fieldGoalsAttempted"])
+        fta = int(r["freeThrowsAttempted"])
+        pts = int(r["points"])
+        ts = round(pts / (2 * (fga + 0.44 * fta)), 3) if (fga + 0.44 * fta) else None
+        pshots = shots_by_player.get(tri, {}).get(str(r["personId"]), [])
+        luck = sq = None
+        if pshots:
+            q = shot_quality(pshots, zone_avg)
+            sq, luck = q["shot_quality"], q["luck_pts"]
+        by_team[tri].append({
+            "person_id": int(r["personId"]),
+            "name": f"{r['firstName']} {r['familyName']}",
+            "minutes": str(r["minutes"]),
+            "pts": pts, "fga": fga, "fgm": int(r["fieldGoalsMade"]),
+            "fta": fta, "ftm": int(r["freeThrowsMade"]),
+            "orb": int(r["reboundsOffensive"]),
+            "drb": int(r["reboundsDefensive"]),
+            "ast": int(r["assists"]), "stl": int(r["steals"]),
+            "blk": int(r["blocks"]), "tov": int(r["turnovers"]),
+            "pf": int(r["foulsPersonal"]),
+            "plus_minus": int(r["plusMinusPoints"]),
+            "ts_pct": ts, "shot_quality": sq, "luck_pts": luck,
+        })
+    for tri in by_team:
+        by_team[tri].sort(key=lambda p: (-p["pts"], p["name"]))
+    return dict(by_team)
+
+
 def compute_game(game_id, matchup, date, zone_avg, season):
     """Full framework output for one game, keyed by team tricode."""
-    teams, pbp, shots = fetch_game(game_id)
+    teams, pbp, shots, player_rows = fetch_game(game_id)
     home = None
     # Home team: the tricode in the matchup before "vs." (home) else after "@"
     if " vs. " in matchup:
@@ -376,4 +439,5 @@ def compute_game(game_id, matchup, date, zone_avg, season):
         "league_n": league_n, "quarters": {str(k): v for k, v in quarters.items()},
         "runs": runs, "diff_series": series,
         "final_diff": series[-1][1] if series else 0,
+        "players": player_stats(player_rows, shots, zone_avg),
     }

@@ -219,6 +219,49 @@ def build_game_page(data, other_games):
 <table><tr><th></th><th>This game</th><th>Season avg (other {len(other_games)} game{'s' if len(other_games) != 1 else ''})</th></tr>
 {rows}</table>"""
 
+    # Player drivers: Jazz table + opponent leaders line
+    players_section = ""
+    pj = data.get("players", {}).get("UTA", [])
+    po = data.get("players", {}).get(opp, [])
+    if pj:
+        def _luck_str(p):
+            return f"{p['luck_pts']:+.1f}" if p["luck_pts"] is not None else "—"
+
+        def _ts_str(p):
+            return f"{p['ts_pct']:.3f}" if p["ts_pct"] is not None else "—"
+
+        prows = ""
+        for p in pj:
+            prows += (f'<tr><td class="lbl">{p["name"]}</td><td>{p["minutes"]}</td>'
+                      f'<td class="num">{p["pts"]}</td><td class="num">{p["orb"]}</td>'
+                      f'<td class="num">{p["stl"]}</td><td class="num">{p["tov"]}</td>'
+                      f'<td class="num">{p["fta"]}</td><td class="num">{_ts_str(p)}</td>'
+                      f'<td class="num">{_luck_str(p)}</td></tr>')
+        lead_bits = []
+        top_orb = max(pj, key=lambda p: p["orb"])
+        top_stl = max(pj, key=lambda p: p["stl"])
+        if top_orb["orb"] > 0:
+            lead_bits.append(f"{top_orb['name']} ({top_orb['orb']} offensive board{'s' if top_orb['orb'] != 1 else ''})")
+        if top_stl["stl"] > 0:
+            lead_bits.append(f"{top_stl['name']} ({top_stl['stl']} steal{'s' if top_stl['stl'] != 1 else ''})")
+        lead = (f'<p class="note">Jazz chance-creators: {"; ".join(lead_bits)}.</p>'
+                if lead_bits else "")
+        opp_line = ""
+        if po:
+            so = max(po, key=lambda p: p["pts"])
+            oo = max(po, key=lambda p: p["orb"])
+            st = max(po, key=lambda p: p["stl"])
+            opp_line = (f'<p class="note">{opp_name} leaders: {so["name"]} ({so["pts"]} pts) · '
+                        f'{oo["name"]} ({oo["orb"]} offensive board{"s" if oo["orb"] != 1 else ""}) · '
+                        f'{st["name"]} ({st["stl"]} steal{"s" if st["stl"] != 1 else ""}).</p>')
+        players_section = f"""<h2>Player drivers</h2>
+{lead}
+<table><tr><th>Utah player</th><th>MIN</th><th>PTS</th><th>ORB</th><th>STL</th>
+<th>TOV</th><th>FTA</th><th>TS%</th><th>Luck</th></tr>
+{prows}</table>
+<p class="note">Luck is field-goal points above expected from shot locations; with only a
+handful of attempts per player, one make swings it by 2–3 points.</p>
+{opp_line}"""
     og_desc = _story(data).replace('"', "&quot;")
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -322,6 +365,7 @@ function showTab(id, btn) {{
      f"+{sq_n['luck_pts']} pts" if sq_n["luck_pts"] >= 0 else f"{sq_n['luck_pts']} pts", None, None,
      f"Actual FG points minus expected ({sq_u['act_fg_pts']} vs {sq_u['exp_pts']} expected; {sq_n['act_fg_pts']} vs {sq_n['exp_pts']})")}
 </table>
+{players_section}
 {own_section}
 <p class="foot"><b>How to read the percentiles:</b> each game's value ranked against all
 {data["league_n"]} team-games played league-wide so far this season.
@@ -542,6 +586,34 @@ def build_season(games):
                      f'<td class="num">{u["tso"] - n["tso"]:+d}</td>'
                      f'<td class="num">{u["ppo"]}</td><td class="num">{n["ppo"]}</td>'
                      f'<td class="num">{u["tov_pct"]}%</td><td class="num">{u["orb_pct"]}%</td></tr>')
+    tot = {}
+    for g in games:
+        for p in g.get("players", {}).get("UTA", []):
+            t = tot.setdefault(p["person_id"], {
+                "name": p["name"], "gp": 0, "pts": 0, "orb": 0, "stl": 0,
+                "fga": 0, "fta": 0, "luck": 0.0, "has_shots": False})
+            t["gp"] += 1
+            t["pts"] += p["pts"]
+            t["orb"] += p["orb"]
+            t["stl"] += p["stl"]
+            t["fga"] += p["fga"]
+            t["fta"] += p["fta"]
+            if p["luck_pts"] is not None:
+                t["luck"] += p["luck_pts"]
+                t["has_shots"] = True
+    srows = ""
+    for t in sorted(tot.values(), key=lambda x: -x["pts"]):
+        denom = 2 * (t["fga"] + 0.44 * t["fta"])
+        ts = round(t["pts"] / denom, 3) if denom else None
+        luck = f"{t['luck']:+.1f}" if t["has_shots"] else "—"
+        srows += (f'<tr><td class="lbl">{t["name"]}</td><td>{t["gp"]}</td>'
+                  f'<td class="num">{t["pts"]}</td><td class="num">{t["orb"]}</td>'
+                  f'<td class="num">{t["stl"]}</td>'
+                  f'<td class="num">{f"{ts:.3f}" if ts is not None else "—"}</td>'
+                  f'<td class="num">{luck}</td></tr>')
+    player_totals = f"""<h2>Jazz player totals</h2>
+<table><tr><th>Player</th><th>GP</th><th>PTS</th><th>ORB</th><th>STL</th><th>TS%</th><th>Luck</th></tr>
+{srows}</table>""" if srows else ""
     hero_latest = f"{SITE_URL}/hero-{games[0]['game_id']}.png"
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -588,6 +660,7 @@ Through {games[0]["date"]}</p>
 <table><tr><th>Date</th><th>Game</th><th>TSO diff</th><th>UTA PPO</th><th>Opp PPO</th>
 <th>UTA TOV%</th><th>UTA ORB%</th></tr>
 {log_rows}</table>
+{player_totals}
 <p class="foot">Averages are across all games above. The percentile column averages each
 game's league percentile rank, so it moves as the league sample grows — early in
 the season it swings a lot. For turnover %, a lower percentile means fewer teams

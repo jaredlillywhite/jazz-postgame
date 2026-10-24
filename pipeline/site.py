@@ -257,9 +257,9 @@ def build_game_page(data, other_games):
         players_section = f"""<h2>Player drivers</h2>
 {lead}
 <table><tr><th>Utah player</th><th>MIN</th><th>PTS</th><th>ORB</th><th>STL</th>
-<th>TOV</th><th>FTA</th><th>TS%</th><th>Luck</th></tr>
+<th>TOV</th><th>FTA</th><th>TS%</th><th>Shot-making</th></tr>
 {prows}</table>
-<p class="note">Luck is field-goal points above expected from shot locations; with only a
+<p class="note">Shot-making is field-goal points above expected from shot locations; with only a
 handful of attempts per player, one make swings it by 2–3 points.</p>
 {opp_line}"""
     og_desc = _story(data).replace('"', "&quot;")
@@ -361,7 +361,7 @@ function showTab(id, btn) {{
 {srow("True shooting %", u["ts_pct"], n["ts_pct"], P["ts_pct"]["UTA"], P["ts_pct"][opp], "")}
 {srow("Shot quality", sq_u["shot_quality"], sq_n["shot_quality"], None, None,
      "Expected points per field-goal attempt from shot locations")}
-{srow("Shooting luck", f"+{sq_u['luck_pts']} pts" if sq_u["luck_pts"] >= 0 else f"{sq_u['luck_pts']} pts",
+{srow("Shot-making", f"+{sq_u['luck_pts']} pts" if sq_u["luck_pts"] >= 0 else f"{sq_u['luck_pts']} pts",
      f"+{sq_n['luck_pts']} pts" if sq_n["luck_pts"] >= 0 else f"{sq_n['luck_pts']} pts", None, None,
      f"Actual FG points minus expected ({sq_u['act_fg_pts']} vs {sq_u['exp_pts']} expected; {sq_n['act_fg_pts']} vs {sq_n['exp_pts']})")}
 </table>
@@ -372,7 +372,7 @@ function showTab(id, btn) {{
 For turnover %, the percentile is flipped — a lower number means fewer teams
 turned it over more. Early in the season these percentiles move a lot.
 <b>Shot quality</b> uses last season's league-average make rates by shot zone.
-<b>Luck</b> is field-goal points only. Free-throw trips are counted from the
+<b>Shot-making</b> is field-goal points above expected from shot locations. Free-throw trips are counted from the
 official play-by-play, not estimated. League shot-opportunity percentiles use
 estimated trips for other teams (0.556 trips per FTA, measured across early-season
 games); this game's own trips are counted exactly.</p>
@@ -612,7 +612,7 @@ def build_season(games):
                   f'<td class="num">{f"{ts:.3f}" if ts is not None else "—"}</td>'
                   f'<td class="num">{luck}</td></tr>')
     player_totals = f"""<h2>Jazz player totals</h2>
-<table><tr><th>Player</th><th>GP</th><th>PTS</th><th>ORB</th><th>STL</th><th>TS%</th><th>Luck</th></tr>
+<table><tr><th>Player</th><th>GP</th><th>PTS</th><th>ORB</th><th>STL</th><th>TS%</th><th>Shot-making</th></tr>
 {srows}</table>""" if srows else ""
     hero_latest = f"{SITE_URL}/hero-{games[0]['game_id']}.png"
     return f"""<!DOCTYPE html>
@@ -734,6 +734,6 @@ def build_hero(data, path):
     row(20, "True shooting %", f"{u['ts_pct']} — {n['ts_pct']}")
     row(12.5, "Shot quality (exp. pts / attempt)", f"{sq_u['shot_quality']} — {sq_n['shot_quality']}")
     luck = lambda s: f"+{s['luck_pts']}" if s["luck_pts"] >= 0 else f"{s['luck_pts']}"
-    row(5, "Shooting luck (pts above expected)", f"{luck(sq_u)} — {luck(sq_n)}")
+    row(5, "Shot-making (pts above expected)", f"{luck(sq_u)} — {luck(sq_n)}")
     fig.savefig(path, dpi=100)
     plt.close(fig)

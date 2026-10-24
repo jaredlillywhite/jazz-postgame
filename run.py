@@ -98,6 +98,7 @@ def main():
             site_mod.build_game_page(g, others))
         site_mod.build_hero(g, str(out / f"hero-{g['game_id']}.png"))
     (out / "index.html").write_text(site_mod.build_index(games))
+    (out / "season.html").write_text(site_mod.build_season(games))
     index = [{"game_id": g["game_id"], "date": g["date"], "matchup": g["matchup"]}
              for g in games]
     (out / "data" / "index.json").write_text(json.dumps(index, indent=1))

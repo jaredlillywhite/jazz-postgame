@@ -21,6 +21,22 @@ TEAM_NAMES = {
 }
 
 
+SITE_URL = "https://jazz-postgame.vercel.app"
+
+MOBILE_CSS = """
+@media (max-width: 640px) {
+  .wrap { padding: 20px 12px 40px; }
+  h1 { font-size: 26px; }
+  .story { font-size: 17px; padding: 14px; }
+  table { display: block; overflow-x: auto; font-size: 14px; }
+  th, td { padding: 7px; }
+  td.num { font-size: 16px; }
+  .bar { width: 48px; }
+  .tabs button { padding: 8px 12px; font-size: 14px; }
+}
+"""
+
+
 def _name(tri):
     return TEAM_NAMES.get(tri, tri)
 
@@ -203,10 +219,17 @@ def build_game_page(data, other_games):
 <table><tr><th></th><th>This game</th><th>Season avg (other {len(other_games)} game{'s' if len(other_games) != 1 else ''})</th></tr>
 {rows}</table>"""
 
+    og_desc = _story(data).replace('"', "&quot;")
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Jazz Postgame</title>
+<meta property="og:title" content="{title} — Jazz Postgame">
+<meta property="og:description" content="{og_desc}">
+<meta property="og:image" content="{SITE_URL}/hero-{data['game_id']}.png">
+<meta property="og:url" content="{SITE_URL}/games/{data['game_id']}.html">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 body {{ font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
   margin: 0; background: #0A0614; color: #F2EFFA; }}
@@ -248,6 +271,7 @@ td.lbl {{ font-weight: 600; }}
 .mut {{ color: #B7A9D9; }}
 .chartbox {{ background: #120A24; border: 1px solid #3A2A6B; border-radius: 10px;
   padding: 12px 8px 4px; }}
+{MOBILE_CSS}
 </style>
 <script>
 function showTab(id, btn) {{
@@ -257,7 +281,7 @@ function showTab(id, btn) {{
   btn.classList.add('active');
 }}
 </script></head><body><div class="wrap">
-<p><a href="../index.html">← All games</a></p>
+<p><a href="../index.html">← All games</a> · <a href="../season.html">Season so far</a></p>
 <h1>{title}</h1>
 <p class="sub">{data["date"]} · Jazz postgame dashboard</p>
 <div class="tabs">
@@ -334,6 +358,10 @@ from the play-by-play inside that exact window.</p>
 
 def build_index(games):
     """games: list of game data dicts, newest first."""
+    wins = sum(1 for g in games
+               if g["teams"]["UTA"]["pts"] > g["teams"][next(t for t in g["teams"] if t != "UTA")]["pts"])
+    record = f"{wins}–{len(games) - wins}" if games else "0–0"
+    through = games[0]["date"] if games else ""
     rows = ""
     for g in games:
         opp = next(t for t in g["teams"] if t != "UTA")
@@ -342,24 +370,23 @@ def build_index(games):
         away_tri = next(t for t in g["teams"] if t != home_tri)
         title = (f"{_name(home_tri)} {g['teams'][home_tri]['pts']}, "
                  f"{_name(away_tri)} {g['teams'][away_tri]['pts']}")
-        avg_ppo = (u["ppo"] + n["ppo"]) / 2
-        avg_tso = (u["tso"] + n["tso"]) / 2
-        vol = (u["tso"] - n["tso"]) * avg_ppo
-        eff = (u["ppo"] - n["ppo"]) * avg_tso
-        if abs(vol) >= abs(eff):
-            verdict = (f"Won on volume (+{u['tso'] - n['tso']} opportunities)"
-                       if vol > 0 else
-                       f"Lost on volume ({u['tso'] - n['tso']} opportunities)")
-        else:
-            verdict = (f"Won on efficiency ({u['ppo']} vs {n['ppo']} per opportunity)"
-                       if eff > 0 else
-                       f"Lost on efficiency ({u['ppo']} vs {n['ppo']} per opportunity)")
-        rows += f"""<div class="game"><a href="games/{g["game_id"]}.html"><b>{title}</b></a>
-  <span class="mut">{g["date"]} · {verdict} · <a href="hero-{g["game_id"]}.png">hero graphic</a></span></div>"""
+        tso_diff = u["tso"] - n["tso"]
+        rows += (f'<tr><td>{g["date"]}</td>'
+                 f'<td><a href="games/{g["game_id"]}.html"><b>{title}</b></a></td>'
+                 f'<td class="num">{tso_diff:+d}</td>'
+                 f'<td class="num">{u["ppo"]} – {n["ppo"]}</td>'
+                 f'<td><a href="hero-{g["game_id"]}.png">Graphic</a></td></tr>')
+    hero_latest = f"{SITE_URL}/hero-{games[0]['game_id']}.png" if games else ""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jazz Postgame — Shot Opportunities × Points Per Opportunity</title>
+<meta property="og:title" content="Jazz Postgame — Shot Opportunities × Points Per Opportunity">
+<meta property="og:description" content="Every Utah Jazz game broken down the same way: total shot opportunities and points per opportunity, with the numbers that explain both.">
+<meta property="og:image" content="{hero_latest}">
+<meta property="og:url" content="{SITE_URL}/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 body {{ font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
   margin: 0; background: #0A0614; color: #F2EFFA; }}
@@ -367,15 +394,204 @@ body {{ font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
 a {{ color: #79A3DC; text-decoration: none; }}
 h1 {{ font-size: 32px; margin: 0 0 6px; }}
 .sub {{ color: #B7A9D9; margin: 0 0 24px; line-height: 1.5; }}
-.game {{ background: #120A24; border: 1px solid #3A2A6B; border-radius: 10px;
-  padding: 16px 18px; margin: 0 0 12px; line-height: 1.6; }}
-.mut {{ color: #B7A9D9; display: block; font-size: 14.5px; }}
+.strip {{ background: #1B1035; border: 1px solid #3A2A6B; border-radius: 10px;
+  padding: 14px 18px; margin: 0 0 24px; line-height: 1.6; }}
+.strip b {{ color: #F2EFFA; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 16px; }}
+th {{ text-align: left; color: #B7A9D9; font-size: 13px; text-transform: uppercase;
+  letter-spacing: .5px; padding: 8px 10px; border-bottom: 1px solid #3A2A6B; }}
+td {{ padding: 10px; border-bottom: 1px solid #241645; vertical-align: middle; }}
+td.num {{ font-weight: 700; font-size: 17px; white-space: nowrap; color: #79A3DC; }}
+.mut {{ color: #B7A9D9; font-size: 14.5px; }}
+{MOBILE_CSS}
 </style></head><body><div class="wrap">
 <h1>Jazz Postgame</h1>
 <p class="sub">Every game broken down the same way: how many shots each team got up,
 and how well they did with them — total shot opportunities (field-goal attempts
 + free-throw trips) and points per opportunity, with the numbers that explain both.</p>
-{rows}
+<div class="strip"><b>Record: {record}</b> · Through {through} · <a href="season.html">Season so far →</a></div>
+<table><tr><th>Date</th><th>Game</th><th>TSO diff</th><th>PPO (UTA – opp)</th><th>Hero</th></tr>
+{rows}</table>
+<p class="mut">TSO diff is Utah's total shot opportunities minus the opponent's. PPO is points per opportunity.</p>
+</div></body></html>"""
+
+
+def _suffix(p):
+    return "th" if 11 <= p % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(p % 10, "th")
+
+
+def _short_date(date_str):
+    return date_str.split(",")[0].title()
+
+
+def _tso_diff_svg(chron):
+    """Bars: Utah's shot-opportunity differential per game, chronological."""
+    W, H, PL, PR, PT, PB = 800, 280, 46, 16, 20, 34
+    vals = []
+    for g in chron:
+        opp = next(t for t in g["teams"] if t != "UTA")
+        vals.append(g["teams"]["UTA"]["tso"] - g["teams"][opp]["tso"])
+    lim = max(max(abs(v) for v in vals), 1) + 3
+    plot_w, plot_h = W - PL - PR, H - PT - PB
+    y0 = PT + plot_h / 2
+
+    def Y(v):
+        return y0 - (v / lim) * (plot_h / 2)
+
+    n = len(vals)
+    step = plot_w / max(n, 1)
+    bars, labels = "", ""
+    for i, (g, v) in enumerate(zip(chron, vals)):
+        x = PL + i * step + step * 0.22
+        w = step * 0.56
+        color = "#79A3DC" if v >= 0 else "#8B5CF6"
+        y_top, h = (Y(v), y0 - Y(v)) if v >= 0 else (y0, Y(v) - y0)
+        opp = next(t for t in g["teams"] if t != "UTA")
+        bars += (f'<rect x="{x:.1f}" y="{y_top:.1f}" width="{w:.1f}" height="{max(h, 2):.1f}" '
+                 f'fill="{color}" rx="3"><title>{_short_date(g["date"])} vs {opp}: {v:+d}</title></rect>')
+        labels += (f'<text x="{x + w / 2:.1f}" y="{H - 10}" font-size="12" fill="#B7A9D9" '
+                   f'text-anchor="middle">{_short_date(g["date"])}</text>')
+    return f"""<svg viewBox="0 0 {W} {H}" width="100%" xmlns="http://www.w3.org/2000/svg"
+  font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <line x1="{PL}" y1="{y0:.1f}" x2="{W - PR}" y2="{y0:.1f}" stroke="#5B4A8A" stroke-width="1"/>
+  {bars}
+  {labels}
+  <text x="{PL}" y="{PT - 6}" font-size="12" fill="#B7A9D9">More chances than opponent ↑</text>
+  <text x="{PL}" y="{H - PB + 26}" font-size="12" fill="#B7A9D9">Fewer chances ↓</text>
+</svg>"""
+
+
+def _ppo_svg(chron):
+    """Lines: points per opportunity, Utah vs opponent, chronological."""
+    W, H, PL, PR, PT, PB = 800, 280, 46, 16, 20, 34
+    jazz, opps = [], []
+    for g in chron:
+        opp = next(t for t in g["teams"] if t != "UTA")
+        jazz.append(g["teams"]["UTA"]["ppo"])
+        opps.append(g["teams"][opp]["ppo"])
+    lo = min(min(jazz), min(opps)) - 0.03
+    hi = max(max(jazz), max(opps)) + 0.03
+    plot_w, plot_h = W - PL - PR, H - PT - PB
+    n = len(jazz)
+
+    def X(i):
+        return PL + (i / max(n - 1, 1)) * plot_w if n > 1 else PL + plot_w / 2
+
+    def Y(v):
+        return PT + (hi - v) / (hi - lo) * plot_h
+
+    def line(series, color):
+        pts = " ".join(f"{X(i):.1f},{Y(v):.1f}" for i, v in enumerate(series))
+        dots = "".join(
+            f'<circle cx="{X(i):.1f}" cy="{Y(v):.1f}" r="5" fill="{color}">'
+            f'<title>{_short_date(chron[i]["date"])}: {v}</title></circle>'
+            for i, v in enumerate(series))
+        return f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round"/>{dots}'
+
+    labels = "".join(
+        f'<text x="{X(i):.1f}" y="{H - 10}" font-size="12" fill="#B7A9D9" text-anchor="middle">'
+        f'{_short_date(g["date"])}</text>' for i, g in enumerate(chron))
+    return f"""<svg viewBox="0 0 {W} {H}" width="100%" xmlns="http://www.w3.org/2000/svg"
+  font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  {line(opps, "#8B5CF6")}
+  {line(jazz, "#79A3DC")}
+  {labels}
+  <text x="{PL}" y="{PT - 6}" font-size="12" fill="#79A3DC">— Utah</text>
+  <text x="{PL + 70}" y="{PT - 6}" font-size="12" fill="#8B5CF6">— Opponent</text>
+</svg>"""
+
+
+def build_season(games):
+    """Season-so-far page: averages, trend charts, per-game log.
+    games: list of game data dicts, newest first."""
+    if not games:
+        return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Season so far — Jazz Postgame</title></head><body><div class="wrap">
+<p><a href="index.html">← All games</a></p><h1>Season so far</h1>
+<p>No finished games yet.</p></div></body></html>"""
+    chron = list(reversed(games))
+    wins = 0
+    for g in games:
+        opp = next(t for t in g["teams"] if t != "UTA")
+        if g["teams"]["UTA"]["pts"] > g["teams"][opp]["pts"]:
+            wins += 1
+    record = f"{wins}–{len(games) - wins}"
+    avg_rows = ""
+    for lbl, key, fmt in [("Total shot opportunities", "tso", "{}"),
+                          ("Points per opportunity", "ppo", "{:.3f}"),
+                          ("Turnover %", "tov_pct", "{}%"),
+                          ("Offensive rebound %", "orb_pct", "{}%"),
+                          ("Free-throw rate", "ftr", "{:.3f}"),
+                          ("True shooting %", "ts_pct", "{:.3f}")]:
+        avg = sum(g["teams"]["UTA"][key] for g in games) / len(games)
+        pct = round(sum(g["league_pctl"][key]["UTA"] for g in games) / len(games))
+        avg_rows += (f'<tr><td class="lbl">{lbl}</td><td class="num">{_fmt(avg, fmt)}</td>'
+                     f'<td class="note">{pct}{_suffix(pct)} percentile on average</td></tr>')
+    log_rows = ""
+    for g in games:
+        opp = next(t for t in g["teams"] if t != "UTA")
+        u, n = g["teams"]["UTA"], g["teams"][opp]
+        home_tri = g["home"]
+        away_tri = next(t for t in g["teams"] if t != home_tri)
+        title = (f"{_name(home_tri)} {g['teams'][home_tri]['pts']}, "
+                 f"{_name(away_tri)} {g['teams'][away_tri]['pts']}")
+        log_rows += (f'<tr><td>{g["date"]}</td>'
+                     f'<td><a href="games/{g["game_id"]}.html"><b>{title}</b></a></td>'
+                     f'<td class="num">{u["tso"] - n["tso"]:+d}</td>'
+                     f'<td class="num">{u["ppo"]}</td><td class="num">{n["ppo"]}</td>'
+                     f'<td class="num">{u["tov_pct"]}%</td><td class="num">{u["orb_pct"]}%</td></tr>')
+    hero_latest = f"{SITE_URL}/hero-{games[0]['game_id']}.png"
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Season so far — Jazz Postgame</title>
+<meta property="og:title" content="Season so far — Jazz Postgame">
+<meta property="og:description" content="Utah Jazz season averages and game-by-game trends in total shot opportunities and points per opportunity.">
+<meta property="og:image" content="{hero_latest}">
+<meta property="og:url" content="{SITE_URL}/season.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+body {{ font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  margin: 0; background: #0A0614; color: #F2EFFA; }}
+.wrap {{ max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }}
+a {{ color: #79A3DC; text-decoration: none; }}
+h1 {{ font-size: 32px; margin: 0 0 6px; }}
+.sub {{ color: #B7A9D9; margin: 0 0 24px; line-height: 1.5; }}
+h2 {{ font-size: 20px; margin: 30px 0 10px; color: #79A3DC; letter-spacing: .3px; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 16px; }}
+th {{ text-align: left; color: #B7A9D9; font-size: 13px; text-transform: uppercase;
+  letter-spacing: .5px; padding: 8px 10px; border-bottom: 1px solid #3A2A6B; }}
+td {{ padding: 10px; border-bottom: 1px solid #241645; vertical-align: middle; }}
+td.num {{ font-weight: 700; font-size: 17px; white-space: nowrap; color: #79A3DC; }}
+td.lbl {{ font-weight: 600; }}
+.note {{ color: #B7A9D9; font-size: 14px; }}
+.foot {{ color: #B7A9D9; font-size: 13.5px; line-height: 1.6; margin-top: 26px; }}
+.chartbox {{ background: #120A24; border: 1px solid #3A2A6B; border-radius: 10px;
+  padding: 12px 8px 4px; }}
+{MOBILE_CSS}
+</style></head><body><div class="wrap">
+<p><a href="index.html">← All games</a></p>
+<h1>Season so far</h1>
+<p class="sub">Record: <b>{record}</b> · {len(games)} game{'s' if len(games) != 1 else ''} ·
+Through {games[0]["date"]}</p>
+<h2>Utah's season averages</h2>
+<table><tr><th></th><th>Average</th><th>League context</th></tr>
+{avg_rows}</table>
+<h2>Shot-opportunity differential per game</h2>
+<div class="chartbox">{_tso_diff_svg(chron)}</div>
+<h2>Points per opportunity per game</h2>
+<div class="chartbox">{_ppo_svg(chron)}</div>
+<h2>Game log</h2>
+<table><tr><th>Date</th><th>Game</th><th>TSO diff</th><th>UTA PPO</th><th>Opp PPO</th>
+<th>UTA TOV%</th><th>UTA ORB%</th></tr>
+{log_rows}</table>
+<p class="foot">Averages are across all games above. The percentile column averages each
+game's league percentile rank, so it moves as the league sample grows — early in
+the season it swings a lot. For turnover %, a lower percentile means fewer teams
+turned it over more.</p>
 </div></body></html>"""
 
 
@@ -424,7 +640,7 @@ def build_hero(data, path):
     ax.text(54, 105.5, big[0], ha="center", fontsize=42, fontweight="bold", color=WHITE)
     ax.text(54, 98, big[1], ha="center", fontsize=42, fontweight="bold", color=SKY)
     ax.text(54, 91, sub, ha="center", fontsize=16.5, color=MUT)
-    ax.text(54, 86.5, "All numbers: Utah — " + opp, ha="center", fontsize=13.5, color=MUT)
+    ax.text(54, 86.5, "All numbers: Utah — " + opp + " · jazz-postgame.vercel.app", ha="center", fontsize=13.5, color=MUT)
     ax.plot([8, 100], [82.5, 82.5], color=DIV, lw=1.5)
 
     def row(y, label, val, lab_fs=18):

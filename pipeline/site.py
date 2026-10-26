@@ -180,7 +180,9 @@ def build_game_page(data, other_games):
                 ("Points", "pts", "{}"), ("Shot opportunities", "tso", "{}"),
                 ("Points per opportunity", "ppo", "{:.3f}"),
                 ("Turnover %", "tov_pct", "{}%"), ("Offensive rebound %", "orb_pct", "{}%"),
-                ("Free-throw rate", "ftr", "{:.3f}"), ("True shooting %", "ts_pct", "{:.3f}")]:
+                ("Free-throw rate", "ftr", "{:.3f}"),
+                ("Effective FG %", "efg_pct", "{:.3f}"),
+                ("Free throw %", "ft_pct", "{:.3f}")]:
             rows += (f'<tr><td class="lbl">{lbl}</td>'
                      f'<td class="num">{_fmt(qu[key], fmt)}</td>'
                      f'<td class="num">{_fmt(qn[key], fmt)}</td></tr>')
@@ -204,7 +206,7 @@ def build_game_page(data, other_games):
     # Own-season comparison: Jazz averages across other games
     own_section = ""
     if other_games:
-        keys = ["tso", "ppo", "orb_pct", "tov_pct", "ts_pct"]
+        keys = ["tso", "ppo", "orb_pct", "tov_pct", "efg_pct", "ft_pct"]
         avg = {k: round(sum(g["teams"]["UTA"][k] for g in other_games) / len(other_games), 3)
                for k in keys}
         rows = ""
@@ -212,7 +214,8 @@ def build_game_page(data, other_games):
                          ("Points per opportunity", "ppo"),
                          ("Offensive rebound %", "orb_pct"),
                          ("Turnover %", "tov_pct"),
-                         ("True shooting %", "ts_pct")]:
+                         ("Effective FG %", "efg_pct"),
+                         ("Free throw %", "ft_pct")]:
             rows += (f'<tr><td class="lbl">{lbl}</td><td class="num">{u[key]}</td>'
                      f'<td class="num">{avg[key]}</td></tr>')
         own_section = f"""<h2>Against Utah's own season so far</h2>
@@ -227,15 +230,19 @@ def build_game_page(data, other_games):
         def _luck_str(p):
             return f"{p['luck_pts']:+.1f}" if p["luck_pts"] is not None else "—"
 
-        def _ts_str(p):
-            return f"{p['ts_pct']:.3f}" if p["ts_pct"] is not None else "—"
+        def _efg_str(p):
+            return f"{p['efg_pct']:.3f}" if p["efg_pct"] is not None else "—"
+
+        def _ft_str(p):
+            return f"{p['ft_pct']:.3f}" if p["ft_pct"] is not None else "—"
 
         prows = ""
         for p in pj:
             prows += (f'<tr><td class="lbl">{p["name"]}</td><td>{p["minutes"]}</td>'
                       f'<td class="num">{p["pts"]}</td><td class="num">{p["orb"]}</td>'
                       f'<td class="num">{p["stl"]}</td><td class="num">{p["tov"]}</td>'
-                      f'<td class="num">{p["fta"]}</td><td class="num">{_ts_str(p)}</td>'
+                      f'<td class="num">{p["fta"]}</td><td class="num">{_efg_str(p)}</td>'
+                      f'<td class="num">{_ft_str(p)}</td>'
                       f'<td class="num">{_luck_str(p)}</td></tr>')
         lead_bits = []
         top_orb = max(pj, key=lambda p: p["orb"])
@@ -257,7 +264,7 @@ def build_game_page(data, other_games):
         players_section = f"""<h2>Player drivers</h2>
 {lead}
 <table><tr><th>Utah player</th><th>MIN</th><th>PTS</th><th>ORB</th><th>STL</th>
-<th>TOV</th><th>FTA</th><th>TS%</th><th>Shot-making</th></tr>
+<th>TOV</th><th>FTA</th><th>eFG%</th><th>FT%</th><th>Shot-making</th></tr>
 {prows}</table>
 <p class="note">Shot-making is field-goal points above expected from shot locations; with only a
 handful of attempts per player, one make swings it by 2–3 points.</p>
@@ -353,12 +360,15 @@ function showTab(id, btn) {{
      f"{u['orb']} offensive boards vs {n['orb']}")}
 {srow("Free-throw rate", u["ftr"], n["ftr"], P["ftr"]["UTA"], P["ftr"][opp],
      f"FTA ÷ FGA ({u['fta']} FTA vs {n['fta']})")}
+{srow("Field goal attempts", u["fga"], n["fga"], None, None, "")}
 </table>
 
 <h2>Why the points per opportunity landed there</h2>
 <table><tr><th></th><th>Utah</th><th>{opp_name}</th>
 <th>UTA league pct</th><th>{opp} league pct</th></tr>
-{srow("True shooting %", u["ts_pct"], n["ts_pct"], P["ts_pct"]["UTA"], P["ts_pct"][opp], "")}
+{srow("Effective FG %", u["efg_pct"], n["efg_pct"], P["efg_pct"]["UTA"], P["efg_pct"][opp],
+     "Field goals counting threes as 1.5 makes")}
+{srow("Free throw %", u["ft_pct"], n["ft_pct"], P["ft_pct"]["UTA"], P["ft_pct"][opp], "")}
 {srow("Shot quality", sq_u["shot_quality"], sq_n["shot_quality"], None, None,
      "Expected points per field-goal attempt from shot locations")}
 {srow("Shot-making", f"+{sq_u['luck_pts']} pts" if sq_u["luck_pts"] >= 0 else f"{sq_u['luck_pts']} pts",
@@ -568,7 +578,8 @@ def build_season(games):
                           ("Turnover %", "tov_pct", "{}%"),
                           ("Offensive rebound %", "orb_pct", "{}%"),
                           ("Free-throw rate", "ftr", "{:.3f}"),
-                          ("True shooting %", "ts_pct", "{:.3f}")]:
+                          ("Effective FG %", "efg_pct", "{:.3f}"),
+                          ("Free throw %", "ft_pct", "{:.3f}")]:
         avg = sum(g["teams"]["UTA"][key] for g in games) / len(games)
         pct = round(sum(g["league_pctl"][key]["UTA"] for g in games) / len(games))
         avg_rows += (f'<tr><td class="lbl">{lbl}</td><td class="num">{_fmt(avg, fmt)}</td>'
@@ -591,28 +602,33 @@ def build_season(games):
         for p in g.get("players", {}).get("UTA", []):
             t = tot.setdefault(p["person_id"], {
                 "name": p["name"], "gp": 0, "pts": 0, "orb": 0, "stl": 0,
-                "fga": 0, "fta": 0, "luck": 0.0, "has_shots": False})
+                "fga": 0, "fgm": 0, "fg3m": 0, "fta": 0, "ftm": 0,
+                "luck": 0.0, "has_shots": False})
             t["gp"] += 1
             t["pts"] += p["pts"]
             t["orb"] += p["orb"]
             t["stl"] += p["stl"]
             t["fga"] += p["fga"]
+            t["fgm"] += p["fgm"]
+            t["fg3m"] += p["fg3m"]
             t["fta"] += p["fta"]
+            t["ftm"] += p["ftm"]
             if p["luck_pts"] is not None:
                 t["luck"] += p["luck_pts"]
                 t["has_shots"] = True
     srows = ""
     for t in sorted(tot.values(), key=lambda x: -x["pts"]):
-        denom = 2 * (t["fga"] + 0.44 * t["fta"])
-        ts = round(t["pts"] / denom, 3) if denom else None
+        efg = round((t["fgm"] + 0.5 * t["fg3m"]) / t["fga"], 3) if t["fga"] else None
+        ftp = round(t["ftm"] / t["fta"], 3) if t["fta"] else None
         luck = f"{t['luck']:+.1f}" if t["has_shots"] else "—"
         srows += (f'<tr><td class="lbl">{t["name"]}</td><td>{t["gp"]}</td>'
                   f'<td class="num">{t["pts"]}</td><td class="num">{t["orb"]}</td>'
                   f'<td class="num">{t["stl"]}</td>'
-                  f'<td class="num">{f"{ts:.3f}" if ts is not None else "—"}</td>'
+                  f'<td class="num">{f"{efg:.3f}" if efg is not None else "—"}</td>'
+                  f'<td class="num">{f"{ftp:.3f}" if ftp is not None else "—"}</td>'
                   f'<td class="num">{luck}</td></tr>')
     player_totals = f"""<h2>Jazz player totals</h2>
-<table><tr><th>Player</th><th>GP</th><th>PTS</th><th>ORB</th><th>STL</th><th>TS%</th><th>Shot-making</th></tr>
+<table><tr><th>Player</th><th>GP</th><th>PTS</th><th>ORB</th><th>STL</th><th>eFG%</th><th>FT%</th><th>Shot-making</th></tr>
 {srows}</table>""" if srows else ""
     hero_latest = f"{SITE_URL}/hero-{games[0]['game_id']}.png"
     return f"""<!DOCTYPE html>
@@ -720,20 +736,22 @@ def build_hero(data, path):
         ax.text(8, y, label, fontsize=lab_fs, color=WHITE, fontweight="bold", va="center")
         ax.text(100, y, val, fontsize=20, color=SKY, fontweight="bold", va="center", ha="right")
 
-    row(76.5, "Shot opportunities", f"{u['tso']} — {n['tso']}")
-    row(68.5, "Points per opportunity", f"{u['ppo']} — {n['ppo']}")
-    ax.plot([8, 100], [63, 63], color=DIV, lw=1.5)
-    ax.text(8, 58, "WHY THE OPPORTUNITIES SPLIT THAT WAY", fontsize=14.5, color=SKY,
+    row(77, "Shot opportunities", f"{u['tso']} — {n['tso']}")
+    row(70.5, "Points per opportunity", f"{u['ppo']} — {n['ppo']}")
+    ax.plot([8, 100], [66, 66], color=DIV, lw=1.5)
+    ax.text(8, 61.5, "WHY THE OPPORTUNITIES SPLIT THAT WAY", fontsize=14.5, color=SKY,
             fontweight="bold", va="center")
-    row(52, "Offensive rebound %", f"{u['orb_pct']}% — {n['orb_pct']}%")
-    row(44, "Turnover %", f"{u['tov_pct']}% — {n['tov_pct']}%")
-    row(36, "Free-throw trips", f"{u['trips']} — {n['trips']}")
-    ax.plot([8, 100], [31, 31], color=DIV, lw=1.5)
-    ax.text(8, 26, "WHY THE EFFICIENCY LANDED THERE", fontsize=14.5, color=SKY,
+    row(55.5, "Offensive rebound %", f"{u['orb_pct']}% — {n['orb_pct']}%")
+    row(49.5, "Turnover %", f"{u['tov_pct']}% — {n['tov_pct']}%")
+    row(43.5, "Free-throw trips", f"{u['trips']} — {n['trips']}")
+    row(37.5, "Field goal attempts", f"{u['fga']} — {n['fga']}")
+    ax.plot([8, 100], [33.5, 33.5], color=DIV, lw=1.5)
+    ax.text(8, 29, "WHY THE EFFICIENCY LANDED THERE", fontsize=14.5, color=SKY,
             fontweight="bold", va="center")
-    row(20, "True shooting %", f"{u['ts_pct']} — {n['ts_pct']}")
+    row(23.5, "Effective FG %", f"{u['efg_pct']} — {n['efg_pct']}")
+    row(18, "Free throw %", f"{u['ft_pct']} — {n['ft_pct']}")
     row(12.5, "Shot quality (exp. pts / attempt)", f"{sq_u['shot_quality']} — {sq_n['shot_quality']}")
     luck = lambda s: f"+{s['luck_pts']}" if s["luck_pts"] >= 0 else f"{s['luck_pts']}"
-    row(5, "Shot-making (pts above expected)", f"{luck(sq_u)} — {luck(sq_n)}")
+    row(7, "Shot-making (pts above expected)", f"{luck(sq_u)} — {luck(sq_n)}")
     fig.savefig(path, dpi=100)
     plt.close(fig)

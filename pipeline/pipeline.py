@@ -95,21 +95,26 @@ def count_trips(pbp):
 
 def team_metrics(box, trips, opp_drb):
     fga = box["fieldGoalsAttempted"]
+    fgm = box["fieldGoalsMade"]
+    fg3m = box["threePointersMade"]
     fta = box["freeThrowsAttempted"]
+    ftm = box["freeThrowsMade"]
     tov = box["turnovers"]
     orb = box["reboundsOffensive"]
     pts = box["points"]
     poss = fga - orb + tov + 0.44 * fta
     tso = fga + trips
     return {
-        "pts": pts, "fga": fga, "fta": fta, "tov": tov, "orb": orb,
-        "drb": box["reboundsDefensive"], "ftm": box["freeThrowsMade"],
+        "pts": pts, "fga": fga, "fgm": fgm, "fg3m": fg3m,
+        "fta": fta, "tov": tov, "orb": orb,
+        "drb": box["reboundsDefensive"], "ftm": ftm,
         "trips": trips, "poss": round(poss, 1), "tso": tso,
         "ppo": round(pts / tso, 3) if tso else None,
         "tov_pct": round(100 * tov / poss, 1) if poss else None,
         "orb_pct": round(100 * orb / (orb + opp_drb), 1) if orb + opp_drb else None,
         "ftr": round(fta / fga, 3) if fga else None,
-        "ts_pct": round(pts / (2 * (fga + 0.44 * fta)), 3) if fga else None,
+        "efg_pct": round((fgm + 0.5 * fg3m) / fga, 3) if fga else None,
+        "ft_pct": round(ftm / fta, 3) if fta else None,
     }
 
 
@@ -154,6 +159,7 @@ def quarter_splits(pbp, home, away):
         if a["isFieldGoal"]:
             q[(p, t)]["fga"] += 1
             if a["shotResult"] == "Made":
+                q[(p, t)]["fgm"] += 1
                 if a["shotValue"] == 3:
                     q[(p, t)]["tpm"] += 1
             else:
@@ -193,7 +199,8 @@ def quarter_splits(pbp, home, away):
                 "tov_pct": round(100 * tov / poss, 1) if poss else None,
                 "orb_pct": round(100 * orb / (orb + opp_drb), 1) if orb + opp_drb else None,
                 "ftr": round(fta / fga, 3) if fga else None,
-                "ts_pct": round(s["pts"] / (2 * (fga + 0.44 * fta)), 3) if fga else None}
+                "efg_pct": round((s["fgm"] + 0.5 * s["tpm"]) / fga, 3) if fga else None,
+                "ft_pct": round(s["ftm"] / fta, 3) if fta else None}
 
     periods = sorted({p for p, _ in q})
     out = {}
@@ -307,7 +314,7 @@ def detect_runs(pbp, home, away, threshold=10):
 def league_percentiles(season, featured):
     """Percentile of each featured metric vs all team-games this season.
 
-    TOV%/ORB%/FTr/TS% come exactly from the league game log. TSO/PPO for the
+    TOV%/ORB%/FTr/eFG%/FT% come exactly from the league game log. TSO/PPO for the
     league distribution use estimated trips (TRIPS_PER_FTA x FTA); the
     featured game's own trips are counted exactly.
     """
@@ -323,7 +330,8 @@ def league_percentiles(season, featured):
                      "ppo": round(r["PTS"] / tso, 3) if tso else None,
                      "tov_pct": round(100 * tov / poss, 1) if poss else None,
                      "ftr": round(fta / fga, 3) if fga else None,
-                     "ts_pct": round(r["PTS"] / (2 * (fga + 0.44 * fta)), 3) if fga else None})
+                     "efg_pct": round((r["FGM"] + 0.5 * r["FG3M"]) / fga, 3) if fga else None,
+                     "ft_pct": round(r["FTM"] / fta, 3) if fta else None})
     # ORB% needs opponent DRB: pair rows by game
     by_game = {}
     for r, row in zip(lg.to_dict("records"), rows):
@@ -344,7 +352,8 @@ def league_percentiles(season, featured):
 
     out = {}
     for key, hb in [("tso", True), ("ppo", True), ("tov_pct", False),
-                    ("orb_pct", True), ("ftr", True), ("ts_pct", True)]:
+                    ("orb_pct", True), ("ftr", True), ("efg_pct", True),
+                    ("ft_pct", True)]:
         vals = [r[key] for r in rows]
         out[key] = {tri: pct(vals, featured[tri][key], hb) for tri in featured}
     return out, len(rows)
@@ -369,9 +378,9 @@ def _min_seconds(m):
 def player_stats(rows, shots_by_tri, zone_avg):
     """Per-player framework numbers, keyed by team tricode.
 
-    Box-score counting stats plus true shooting % and shot-location luck
-    (actual FG points minus expected, from the same zone averages as the
-    team shot quality). Players who did not play are dropped."""
+    Box-score counting stats plus effective FG % / free-throw % and
+    shot-location luck (actual FG points minus expected, from the same zone
+    averages as the team shot quality). Players who did not play are dropped."""
     from collections import defaultdict
     shots_by_player = {}
     for tri, shots in shots_by_tri.items():
@@ -385,9 +394,13 @@ def player_stats(rows, shots_by_tri, zone_avg):
         if _min_seconds(r.get("minutes")) <= 0:
             continue
         fga = int(r["fieldGoalsAttempted"])
+        fgm = int(r["fieldGoalsMade"])
+        fg3m = int(r["threePointersMade"])
         fta = int(r["freeThrowsAttempted"])
+        ftm = int(r["freeThrowsMade"])
         pts = int(r["points"])
-        ts = round(pts / (2 * (fga + 0.44 * fta)), 3) if (fga + 0.44 * fta) else None
+        efg = round((fgm + 0.5 * fg3m) / fga, 3) if fga else None
+        ftp = round(ftm / fta, 3) if fta else None
         pshots = shots_by_player.get(tri, {}).get(str(r["personId"]), [])
         luck = sq = None
         if pshots:
@@ -397,15 +410,16 @@ def player_stats(rows, shots_by_tri, zone_avg):
             "person_id": int(r["personId"]),
             "name": f"{r['firstName']} {r['familyName']}",
             "minutes": str(r["minutes"]),
-            "pts": pts, "fga": fga, "fgm": int(r["fieldGoalsMade"]),
-            "fta": fta, "ftm": int(r["freeThrowsMade"]),
+            "pts": pts, "fga": fga, "fgm": fgm, "fg3m": fg3m,
+            "fta": fta, "ftm": ftm,
             "orb": int(r["reboundsOffensive"]),
             "drb": int(r["reboundsDefensive"]),
             "ast": int(r["assists"]), "stl": int(r["steals"]),
             "blk": int(r["blocks"]), "tov": int(r["turnovers"]),
             "pf": int(r["foulsPersonal"]),
             "plus_minus": int(r["plusMinusPoints"]),
-            "ts_pct": ts, "shot_quality": sq, "luck_pts": luck,
+            "efg_pct": efg, "ft_pct": ftp,
+            "shot_quality": sq, "luck_pts": luck,
         })
     for tri in by_team:
         by_team[tri].sort(key=lambda p: (-p["pts"], p["name"]))
